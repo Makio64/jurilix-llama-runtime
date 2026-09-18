@@ -1,0 +1,74 @@
+name: Build patched llama.cpp runtime
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: ${{ matrix.variant }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { variant: macos-arm64, os: macos-15 }
+          - { variant: macos-x64, os: macos-15-intel }
+          - { variant: linux-x64, os: ubuntu-24.04 }
+          - { variant: win-cpu-x64, os: windows-2022 }
+          - { variant: win-vulkan-x64, os: windows-2022 }
+          - { variant: win-cuda-x64, os: windows-2022 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare verified upstream source and patch
+        run: python scripts/build-patched-llama.py --variant ${{ matrix.variant }} --prepare-only
+      - name: Install Ninja on macOS
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Install Ninja on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Install Ninja on Windows
+        if: runner.os == 'Windows'
+        run: choco install ninja -y
+      - name: Install CUDA 12.4 from the pinned upstream build recipe
+        if: matrix.variant == 'win-cuda-x64'
+        uses: ./tmp/gemma-runtime/source/.github/actions/windows-setup-cuda
+        with:
+          cuda_version: '12.4'
+          cuda_arch: x64
+      - name: Install Vulkan SDK
+        if: matrix.variant == 'win-vulkan-x64'
+        shell: pwsh
+        run: |
+          $version = '1.4.357.0'
+          $installer = Join-Path $env:RUNNER_TEMP 'VulkanSDK-Installer.exe'
+          curl.exe --fail --location --output $installer "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Vulkan SDK download failed' }
+          & $installer --accept-licenses --default-answer --confirm-command install
+          if ($LASTEXITCODE -ne 0) { throw 'Vulkan SDK installation failed' }
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$version"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$version\bin"
+      - name: Build and run parser tests on Windows
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          python scripts/build-patched-llama.py --variant ${{ matrix.variant }} --jobs 3
+      - name: Build and run parser tests on Unix
+        if: runner.os != 'Windows'
+        run: python scripts/build-patched-llama.py --variant ${{ matrix.variant }} --jobs 3
+      - name: Preserve runtime, checksums and test evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: gemma-runtime-${{ matrix.variant }}
+          path: tmp/gemma-runtime/artifacts/
+          if-no-files-found: error
+          retention-days: 30

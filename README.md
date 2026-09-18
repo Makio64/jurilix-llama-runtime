@@ -1,0 +1,63 @@
+# Jurilix llama.cpp runtime
+
+Reproducible native builds of llama.cpp with the Gemma structured-output parser
+fix used by Jurilix. The release identity is **b10956-jurilix1**.
+
+## Source and change
+
+- Upstream: [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp), commit
+  `21f6b0d22c6c87efd42d22485cd8b13f61ad5736` (b10956).
+- Patch: `scripts/finetune/patches/llama-cpp-gemma4-plain-json-b10956-2026-09-15.diff`.
+- Patch SHA-256: `a45ebb7cd44e8da57af1b237c34dd4487684c617963d861568cfdcbf4835c73c`.
+
+The Gemma parser accepts schema-constrained plain JSON as well as its existing
+fenced JSON format. Tests cover structured output, reasoning and tool calls.
+The engine identifies itself with the upstream build and `-jurilix1` suffix.
+This repository contains runtime build sources; model weights and application
+sources are not included.
+
+## Build
+
+Use a native runner matching the requested variant, with Python 3.10+, CMake,
+Ninja and a C++ compiler. Windows CUDA uses CUDA 12.4; Windows Vulkan uses the
+Vulkan SDK. The workflow records the native runner setup.
+
+```sh
+python scripts/build-patched-llama.py --variant macos-arm64 --jobs 3
+```
+
+Other variants: `macos-x64`, `linux-x64`, `win-cpu-x64`, `win-vulkan-x64`,
+`win-cuda-x64`. Each build checks the exact source diff, executes parser and
+grammar tests, checks the packaged executable version, and writes a receipt
+with archive and individual file SHA-256 values. Windows uses a static build
+for parser internals and a shared build for the delivered runtime, with an
+additional shared PEG parser test.
+
+The native CUDA archive is split without changing file bytes:
+
+```sh
+python scripts/split-cuda-runtime.py \
+  --receipt tmp/gemma-runtime/artifacts/llama-b10956-jurilix1-bin-win-cuda-x64.json \
+  --output tmp/gemma-runtime/cuda-downloads
+```
+
+Extract both the main CUDA archive and its `cudart-*.zip` companion into the
+same directory. The split receipt links both downloads to the native build.
+
+## Per-request LoRA use
+
+With this upstream version, always pass `--cache-ram 0` when changing LoRA
+strengths between requests. The RAM prompt cache does not record LoRA identity
+and can restore KV states computed at different strengths. Slot-local prompt
+caching still performs its ordinary invalidation when LoRA strengths change.
+Load adapters with `--lora-init-without-apply`, then supply the explicit scale
+for each request, including zero outside the adapter's intended tasks.
+
+Native parser/build checks do not establish model quality, GPU performance or
+application-level qualification. Those depend on the exact weights, request
+policy and target machine. The release receipts describe the checks performed.
+
+## License
+
+llama.cpp and the parser modification are distributed under the MIT license.
+See `LICENSE`. CUDA redistributable libraries retain NVIDIA's applicable terms.

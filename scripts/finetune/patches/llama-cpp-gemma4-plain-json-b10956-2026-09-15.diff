@@ -1,0 +1,53 @@
+diff --git a/common/parsers/gemma4.cpp b/common/parsers/gemma4.cpp
+index ad48226..e4c01bb 100644
+--- a/common/parsers/gemma4.cpp
++++ b/common/parsers/gemma4.cpp
+@@ -211,9 +211,11 @@ common_chat_params common_chat_params_init_gemma4(const common_chat_template &
+         auto thought = (p.peek(p.literal("<|channel>")) + consume_empty_channels + p.ref("thought")) | p.negate(p.literal("<|channel>"));
+ 
+         if (has_response_format) {
+-            auto response_format = p.literal("```json") <<
+-                p.content(p.schema(p.json(), "response-format-schema", inputs.json_schema)) <<
+-                p.literal("```");
++            auto json_response = p.content(p.schema(p.json(), "response-format-schema", inputs.json_schema));
++            auto response_format = p.choice({
++                p.literal("```json") << json_response << p.literal("```"),
++                p.space() + json_response + p.space(),
++            });
+             return start + p.optional(thought) + response_format;
+         }
+ 
+diff --git a/tests/test-chat.cpp b/tests/test-chat.cpp
+index 30a7237..dbdc33f 100644
+--- a/tests/test-chat.cpp
++++ b/tests/test-chat.cpp
+@@ -2981,6 +2981,29 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
+         // Google Gemma 4 (tool calling with Gemma4 dict format)
+         auto tst = peg_tester("models/templates/google-gemma-4-31B-it.jinja");
+ 
++        // Fine-tuned Gemma 4 models may return JSON directly, including an
++        // empty extraction. The schema grammar must accept this alongside
++        // the fenced format used by the base model.
++        const std::string entities_schema = R"({"type":"object","properties":{"entities":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"type":{"type":"string","enum":["PERSONNE"]}},"required":["text","type"],"additionalProperties":false}}},"required":["entities"],"additionalProperties":false})";
++        for (const std::string value : {std::string(R"({"entities":[]})"),
++                                      std::string(R"({"entities":[{"text":"Claire Martin","type":"PERSONNE"}]})")}) {
++            for (bool fenced : {false, true}) {
++                tst.test(fenced ? "```json\n" + value + "\n```" : value)
++                    .enable_thinking(false)
++                    .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
++                    .json_schema(entities_schema)
++                    .expect_content(value)
++                    .run();
++            }
++        }
++        tst.test("<|channel>thought\nNo identifiers.<channel|>{\"entities\":[]}")
++            .enable_thinking(true)
++            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
++            .json_schema(entities_schema)
++            .expect_reasoning("No identifiers.")
++            .expect_content(R"({"entities":[]})")
++            .run();
++
+         tst.test("Hello, world!").expect(simple_assist_msg("Hello, world!")).run();
+ 
+         // Reasoning and content
