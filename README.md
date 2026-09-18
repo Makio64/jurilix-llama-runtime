@@ -19,8 +19,8 @@ sources are not included.
 ## Build
 
 Use a native runner matching the requested variant, with Python 3.10+, CMake,
-Ninja and a C++ compiler. Windows CUDA uses CUDA 12.4; Windows Vulkan uses the
-Vulkan SDK. The workflow records the native runner setup.
+Ninja and a C++ compiler. Windows Vulkan uses the Vulkan SDK. The workflow
+records the native runner setup.
 
 ```sh
 python scripts/build-patched-llama.py --variant macos-arm64 --jobs 3
@@ -33,11 +33,43 @@ with archive and individual file SHA-256 values. Windows uses a static build
 for parser internals and a shared build for the delivered runtime, with an
 additional shared PEG parser test.
 
-The native CUDA archive is split without changing file bytes:
+### Windows CUDA
+
+The release uses the tested patched Windows CPU/core runtime and the unchanged
+**CUDA 12.4 plugin from upstream b10956**, at the same pinned source commit.
+Only the Gemma JSON parser and tests are patched; the CUDA kernel code is not.
+Both upstream archives are pinned by size and SHA-256 in the composition recipe.
+This avoids rebuilding unchanged CUDA kernels for a parser-only change.
+
+On native Windows x64, first build/test the CPU runtime, then compose CUDA:
+
+```sh
+python scripts/build-patched-llama.py --variant win-cpu-x64 --jobs 3
+python -m pip install pefile==2024.8.26
+python scripts/compose-cuda-runtime.py \
+  --cpu-receipt tmp/gemma-runtime/artifacts/llama-b10956-jurilix1-bin-win-cpu-x64.json \
+  --output tmp/gemma-runtime/cuda-original
+```
+
+Composition verifies the original native receipt, every runtime file and all
+five parser-test logs. Native checks resolve every non-driver import from the
+CUDA plugin against the actual shipped or Windows DLL, and run the packaged
+server device-discovery path. Missing dependency exports or executable-version
+mismatch fail the package. `nvcuda.dll` belongs to the NVIDIA driver; the app
+only downloads this variant when that driver is installed.
+
+On a runner with that driver, the shipped GGML core must also load/register
+the plugin through its version-checked backend API and the actual server must
+discover it. Without a driver, the receipt explicitly records that CUDA
+registration was **not run**; it is not reported as a passing GPU test. The
+composition receipt identifies every dependency and retained native test.
+GPU inference remains unqualified by these packaging checks.
+
+The validated package is split without changing file bytes:
 
 ```sh
 python scripts/split-cuda-runtime.py \
-  --receipt tmp/gemma-runtime/artifacts/llama-b10956-jurilix1-bin-win-cuda-x64.json \
+  --receipt tmp/gemma-runtime/cuda-original/llama-b10956-jurilix1-bin-win-cuda-x64.json \
   --output tmp/gemma-runtime/cuda-downloads
 ```
 
