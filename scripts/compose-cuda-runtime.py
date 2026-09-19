@@ -34,6 +34,14 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def version_identity(output: str) -> tuple[str, str]:
+    versions = [line for line in output.splitlines() if line.startswith("version:")]
+    compilers = [line for line in output.splitlines() if line.startswith("built with ")]
+    if len(versions) != 1 or len(compilers) != 1:
+        raise ValueError("Missing or ambiguous runtime version identity")
+    return versions[0], compilers[0]
+
+
 def verified_files(receipt_path: Path) -> tuple[dict, dict[str, bytes]]:
     receipt = json.loads(receipt_path.read_text())
     pin = json.loads((ROOT / "scripts/llama-patch.json").read_text())
@@ -195,7 +203,7 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
             raise RuntimeError("The actual server did not discover the CUDA plugin")
         tests.append({"name": name, "exitCode": 0, "linkage": "shared", "logSha256": sha(log.read_bytes())})
     version = subprocess.check_output([str(stage / "llama-server.exe"), "--version"], cwd=stage, stderr=subprocess.STDOUT, text=True)
-    if version != base["versionOutput"]:
+    if version_identity(version) != version_identity(base["versionOutput"]):
         raise ValueError("Composed server version differs from the tested CPU executable")
     receipt = {**{k: v for k, v in base.items() if k not in ("archive", "files", "tests")},
                "variant": "win-cuda-x64", "tests": tests,

@@ -13,6 +13,18 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CudaCompositionTests(unittest.TestCase):
+    def test_version_identity_ignores_startup_timing_but_preserves_build_and_compiler(self):
+        identity = "version: 0.4.1-dev (build 11056, commit e613ef2c81-jurilix2)\nbuilt with MSVC for Windows x64\n"
+        self.assertEqual(MODULE.version_identity("0.00.000.142 I srv initializing\n" + identity),
+                         MODULE.version_identity("0.00.000.311 I srv initializing\n" + identity))
+        self.assertNotEqual(MODULE.version_identity(identity),
+                            MODULE.version_identity(identity.replace("jurilix2", "jurilix1")))
+        self.assertNotEqual(MODULE.version_identity(identity),
+                            MODULE.version_identity(identity.replace("x64", "arm64")))
+        for invalid in ("", "initializing", identity + identity):
+            with self.assertRaisesRegex(ValueError, "version identity"):
+                MODULE.version_identity(invalid)
+
     def fixture(self, root, *, commit=None, filename="ggml.dll"):
         pin = json.loads((ROOT / "scripts/llama-patch.json").read_text())
         data = b"synthetic native runtime"
