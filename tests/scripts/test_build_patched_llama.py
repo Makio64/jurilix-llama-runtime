@@ -19,17 +19,18 @@ class PinnedPatchTests(unittest.TestCase):
         self.source = Path(self.temp.name) / "source"
         self.source.mkdir()
         self.git("init", "-q")
+        self.git("config", "core.autocrlf", "false")
         self.git("config", "user.name", "Runtime test")
         self.git("config", "user.email", "runtime-test@example.invalid")
         self.file = self.source / "parser.cpp"
-        self.file.write_text("fenced-only\nunchanged\n")
+        self.file.write_text("fenced-only\nunchanged\n", newline="\n")
         self.git("add", "parser.cpp")
         self.git("commit", "-qm", "base")
         commit = self.git("rev-parse", "HEAD").strip()
-        self.file.write_text("plain-or-fenced\nunchanged\n")
+        self.file.write_text("plain-or-fenced\nunchanged\n", newline="\n")
         patch = Path(self.temp.name) / "parser.diff"
-        patch.write_text(self.git("diff"))
-        self.file.write_text("fenced-only\nunchanged\n")
+        patch.write_text(self.git("diff"), newline="\n")
+        self.file.write_text("fenced-only\nunchanged\n", newline="\n")
         self.manifest = {"patch": str(patch), "patchSha256": builder.sha(patch), "upstreamCommit": commit}
 
     def git(self, *args):
@@ -42,7 +43,7 @@ class PinnedPatchTests(unittest.TestCase):
 
     def test_rejects_unrelated_edit_in_the_same_file(self):
         builder.prepare(self.source, self.manifest)
-        self.file.write_text(self.file.read_text() + "unrecorded-change\n")
+        self.file.write_text(self.file.read_text() + "unrecorded-change\n", newline="\n")
         with self.assertRaisesRegex(ValueError, "exact pinned patch"):
             builder.prepare(self.source, self.manifest)
         self.assertIn("unrecorded-change", self.file.read_text())
