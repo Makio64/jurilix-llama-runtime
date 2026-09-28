@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build, test and package the pinned Gemma JSON parser fix on native runners.
+"""Build, test and package pinned JSON parser fixes on native runners.
 
 This does not change the product pin or publish anything. The resulting archive
 and receipt are inputs to release qualification. Source, patch and every packaged
-file are identified separately so a patched build cannot pass as upstream b10956.
+file are identified separately so a patched build cannot pass as an unpatched upstream build.
 """
 from __future__ import annotations
 
@@ -30,6 +30,13 @@ def sha(path: Path) -> str:
         for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def patched_commit(spec: dict) -> str:
+    prefix = spec["upstreamTag"] + "-"
+    if not spec["id"].startswith(prefix) or not spec["id"][len(prefix):]:
+        raise ValueError("Patch ID must extend the pinned upstream tag")
+    return spec["upstreamCommit"][:10] + "-" + spec["id"][len(prefix):]
 
 
 def run(args: list[str], cwd: Path, log: Path | None = None) -> str:
@@ -77,7 +84,7 @@ def configure_args(source: Path, build: Path, variant: str, spec: dict) -> list[
             "-DLLAMA_OPENSSL=OFF", "-DLLAMA_BUILD_BORINGSSL=OFF",
             "-DGGML_METAL=OFF", "-DGGML_CUDA=OFF", "-DGGML_VULKAN=OFF",
             f"-DLLAMA_BUILD_NUMBER={spec['upstreamTag'][1:]}",
-            f"-DLLAMA_BUILD_COMMIT={spec['upstreamCommit'][:10]}-jurilix1"]
+            f"-DLLAMA_BUILD_COMMIT={patched_commit(spec)}"]
     if variant.startswith("macos"):
         args += ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3", "-DCMAKE_BUILD_RPATH=@loader_path",
                  "-DGGML_BLAS=ON", "-DGGML_BLAS_VENDOR=Apple"]
@@ -154,7 +161,7 @@ def build_package(args: argparse.Namespace, spec: dict) -> None:
     shutil.copy2(source / "LICENSE", stage / "LICENSE")
     (stage / "VERSION").write_text(spec["id"] + "\n")
     version = run([str(stage / ("llama-server" + suffix)), "--version"], stage)
-    if f"build {spec['upstreamTag'][1:]}" not in version or f"{spec['upstreamCommit'][:10]}-jurilix1" not in version:
+    if f"build {spec['upstreamTag'][1:]}" not in version or patched_commit(spec) not in version:
         raise ValueError("Packaged executable does not identify the source and patch")
     receipt = {"schema": "jurilix.patched-runtime.v1", "id": spec["id"], "variant": args.variant,
                "upstreamRepository": spec["upstreamRepository"], "upstreamCommit": spec["upstreamCommit"],
@@ -188,5 +195,6 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=ROOT / "tmp/gemma-runtime/artifacts")
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--manifest", type=Path, default=ROOT / "scripts/llama-patch.json")
     options = parser.parse_args()
-    build_package(options, json.loads((ROOT / "scripts/llama-patch.json").read_text()))
+    build_package(options, json.loads(options.manifest.read_text()))

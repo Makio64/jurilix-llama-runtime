@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Combine the tested patched Windows runtime with its unchanged upstream CUDA plugin.
 
-The Gemma patch changes only common/parsers/gemma4.cpp and parser tests. GGML's
+The patch changes only Gemma/Ministral chat parsers and parser tests. GGML's
 dynamic backend API checks its ABI version when loading the CUDA plugin. This
-recipe retains the exact upstream b10956 CUDA 12.4 DLL and redistributables,
+recipe retains the exact upstream b11232 CUDA 12.4 DLL and redistributables,
 then requires native Windows import resolution and server device discovery.
 Full plugin registration also runs when an NVIDIA driver is available.
 It does not claim GPU inference on a runner without a GPU.
@@ -25,13 +25,21 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = {
-    "llama-b10956-bin-win-cuda-12.4-x64.zip": (254069532, "afe5003efa5651af6281512073cafbdb64bf510aa1bc7f76321bfe830a879362"),
+    "llama-b11232-bin-win-cuda-12.4-x64.zip": (264518110, "15971b4cc296d23946dde16027c99130c849052c00d1d04a4540cca6d8ac478e"),
     "cudart-llama-bin-win-cuda-12.4-x64.zip": (391443627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"),
 }
 
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def version_identity(output: str) -> tuple[str, str]:
+    versions = [line for line in output.splitlines() if line.startswith("version:")]
+    compilers = [line for line in output.splitlines() if line.startswith("built with ")]
+    if len(versions) != 1 or len(compilers) != 1:
+        raise ValueError("Missing or ambiguous runtime version identity")
+    return versions[0], compilers[0]
 
 
 def verified_files(receipt_path: Path) -> tuple[dict, dict[str, bytes]]:
@@ -67,7 +75,7 @@ def download(name: str, cache: Path) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         request = urllib.request.Request(
-            f"https://github.com/ggml-org/llama.cpp/releases/download/b10956/{name}",
+            f"https://github.com/ggml-org/llama.cpp/releases/download/b11232/{name}",
             headers={"User-Agent": "jurilix-runtime-build/1"})
         with urllib.request.urlopen(request, timeout=120) as response, path.open("xb") as stream:
             copied = 0
@@ -168,7 +176,7 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
                 if basename in files:
                     raise ValueError("CUDA dependency would overwrite a tested runtime file")
                 files[basename] = bundle.read(member)
-        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b10956", "filename": name,
+        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b11232", "filename": name,
                         "bytes": UPSTREAM[name][0], "sha256": UPSTREAM[name][1]})
     output.mkdir(parents=True)
     stage = output / "runtime"
@@ -195,7 +203,7 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
             raise RuntimeError("The actual server did not discover the CUDA plugin")
         tests.append({"name": name, "exitCode": 0, "linkage": "shared", "logSha256": sha(log.read_bytes())})
     version = subprocess.check_output([str(stage / "llama-server.exe"), "--version"], cwd=stage, stderr=subprocess.STDOUT, text=True)
-    if version != base["versionOutput"]:
+    if version_identity(version) != version_identity(base["versionOutput"]):
         raise ValueError("Composed server version differs from the tested CPU executable")
     receipt = {**{k: v for k, v in base.items() if k not in ("archive", "files", "tests")},
                "variant": "win-cuda-x64", "tests": tests,

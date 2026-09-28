@@ -65,6 +65,23 @@ class PinnedPatchTests(unittest.TestCase):
         self.assertIn("common/parsers/gemma4.cpp", output)
         self.assertIn("tests/test-chat.cpp", output)
 
+    def test_product_and_ministral_builds_preserve_both_parser_fixes(self):
+        manifest = json.loads((ROOT / "scripts/llama-patch-ministral.json").read_text())
+        patch = ROOT / manifest["patch"]
+        self.assertEqual(builder.sha(patch), manifest["patchSha256"])
+        output = subprocess.check_output(["git", "apply", "--numstat", str(patch)], cwd=ROOT, text=True)
+        for path in ("common/parsers/gemma4.cpp", "common/parsers/ministral3.cpp", "tests/test-chat.cpp"):
+            self.assertIn(path, output)
+        args = builder.configure_args(Path('/source'), Path('/build'), 'macos-arm64', manifest)
+        self.assertIn('-DLLAMA_BUILD_COMMIT=6f767fe960-jurilix1', args)
+        original = json.loads((ROOT / "scripts/llama-patch.json").read_text())
+        self.assertEqual(original, manifest)
+        self.assertEqual(builder.patched_commit(original), '6f767fe960-jurilix1')
+
+    def test_rejects_ambiguous_patch_identity(self):
+        with self.assertRaisesRegex(ValueError, 'Patch ID'):
+            builder.patched_commit({'upstreamTag':'b10956','upstreamCommit':'a'*40,'id':'b10956'})
+
 
 if __name__ == "__main__":
     unittest.main()
