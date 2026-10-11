@@ -2,6 +2,15 @@ name: Build patched llama.cpp runtime
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_run_id:
+        description: Instead of building, publish the Windows artifacts of this successful run
+        required: false
+        default: ''
+      release_tag:
+        description: Release (draft allowed) that receives them
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -9,6 +18,7 @@ permissions:
 jobs:
   runtime:
     name: ${{ matrix.variant }}
+    if: inputs.publish_run_id == ''
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -81,3 +91,32 @@ jobs:
             tmp/gemma-runtime/cuda-downloads/
           if-no-files-found: error
           retention-days: 30
+
+  # Moves Windows artifacts from a build run to its release without leaving
+  # GitHub (the CUDA runtime alone is ~660 MB), after verifying receipts,
+  # parser logs and archives.
+  publish-windows:
+    if: inputs.publish_run_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ inputs.publish_run_id }}
+      TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Require a successful build run
+        run: test "$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion,workflowName --jq '.workflowName + ":" + .conclusion')" = "Build patched llama.cpp runtime:success"
+      - name: Download native Windows artifacts
+        run: |
+          for variant in win-cpu-x64 win-vulkan-x64 win-cuda-x64; do
+            gh run download "$RUN_ID" --repo "$REPO" --name "gemma-runtime-$variant" --dir "ci/gemma-runtime-$variant"
+          done
+      - name: Verify receipts, parser logs and archives
+        run: python3 scripts/verify-ci-artifacts.py --ci ci --out publish --tag "$TAG" win-cpu-x64 win-vulkan-x64 win-cuda-x64
+      - name: Attach to the release
+        run: gh release upload "$TAG" publish/* --repo "$REPO"

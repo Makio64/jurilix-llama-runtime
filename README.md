@@ -19,6 +19,10 @@ CUDA 12.4 backend with the native-tested patched core, checks native imports
 and device discovery, then splits the result into bounded download archives.
 A runner without an NVIDIA driver cannot qualify CUDA GPU inference.
 
+Dispatching the same workflow with `publish_run_id` and `release_tag` verifies
+that run's Windows receipts, parser logs and archives, then attaches them to
+the release without downloading them locally.
+
 Every runtime archive includes a version identity and a receipt with source,
 patch, file hashes and parser-test evidence. Published archives are independent
 of the source build recipe: updating this repository does not activate an
