@@ -1,0 +1,103 @@
+diff --git a/common/parsers/gemma4.cpp b/common/parsers/gemma4.cpp
+index 1a63fa9..d8a8430 100644
+--- a/common/parsers/gemma4.cpp
++++ b/common/parsers/gemma4.cpp
+@@ -211,9 +211,11 @@ common_chat_params common_chat_params_init_gemma4(const common_chat_template &
+         auto thought = (p.peek(p.literal("<|channel>")) + consume_empty_channels + p.ref("thought")) | p.negate(p.literal("<|channel>"));
+ 
+         if (has_response_format) {
+-            auto response_format = p.literal("```json") <<
+-                p.content(p.schema(p.json(), "response-format-schema", inputs.json_schema)) <<
+-                p.literal("```");
++            auto json_response = p.content(p.schema(p.json(), "response-format-schema", inputs.json_schema));
++            auto response_format = p.choice({
++                p.literal("```json") << json_response << p.literal("```"),
++                p.space() + json_response + p.space(),
++            });
+             return start + p.optional(thought) + response_format;
+         }
+ 
+diff --git a/common/parsers/ministral3.cpp b/common/parsers/ministral3.cpp
+index 6341639..e490c1a 100644
+--- a/common/parsers/ministral3.cpp
++++ b/common/parsers/ministral3.cpp
+@@ -79,8 +79,13 @@ common_chat_params common_chat_params_init_ministral_3(const common_chat_templat
+ 
+         // Response format parser
+         if (has_response_format) {
+-            // Ministral wants to emit json surrounded by code fences
+-            return generation_prompt + (reasoning << "```json" << p.content(p.schema(p.json(), "response-format", inputs.json_schema)) << "```");
++            // Accept direct JSON from fine-tuned models and fenced JSON from the base model.
++            auto json_response = p.content(p.schema(p.json(), "response-format", inputs.json_schema));
++            auto response_format = p.choice({
++                p.literal("```json") << json_response << p.literal("```"),
++                p.space() + json_response + p.space(),
++            });
++            return generation_prompt + (reasoning << response_format);
+         }
+ 
+         // Tool call parser
+diff --git a/tests/test-chat.cpp b/tests/test-chat.cpp
+index 01b2220..952cc3a 100644
+--- a/tests/test-chat.cpp
++++ b/tests/test-chat.cpp
+@@ -2612,6 +2612,29 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
+         // Ministral-3-14B-Reasoning-2512
+         auto tst = peg_tester("models/templates/mistralai-Ministral-3-14B-Reasoning-2512.jinja", detailed_debug);
+ 
++        const std::string events_schema = R"({"type":"object","properties":{"events":{"type":"array","items":{"type":"object","properties":{"date":{"type":"string"},"titre":{"type":"string"}},"required":["date","titre"],"additionalProperties":false}}},"required":["events"],"additionalProperties":false})";
++        for (const std::string value : {std::string(R"({"events":[]})"),
++                                      std::string(R"({"events":[{"date":"2025-03-06","titre":"Hearing"}]})")}) {
++            for (bool fenced : {false, true}) {
++                for (bool thinking : {false, true}) {
++                    const std::string reasoning = thinking ? "[THINK]Extract dated events.[/THINK]" : "";
++                    tst.test(reasoning + (fenced ? "```json\n" + value + "\n```" : " \n" + value + "\n"))
++                        .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
++                        .enable_thinking(thinking)
++                        .json_schema(events_schema)
++                        .expect_reasoning(thinking ? "Extract dated events." : "")
++                        .expect_content(value)
++                        .run();
++                }
++            }
++            tst.test(value)
++                .reasoning_format(COMMON_REASONING_FORMAT_NONE)
++                .enable_thinking(false)
++                .json_schema(events_schema)
++                .expect_content(value)
++                .run();
++        }
++
+         tst.test("Hello, world!\nWhat's up?").expect(message_assist).expect_reconstruction().run();
+ 
+         tst.test("[THINK]I'm\nthinking[/THINK]Hello, world!\nWhat's up?")
+@@ -3003,6 +3026,29 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
+         // Google Gemma 4 (tool calling with Gemma4 dict format)
+         auto tst = peg_tester("models/templates/google-gemma-4-31B-it.jinja");
+ 
++        // Fine-tuned Gemma 4 models may return JSON directly, including an
++        // empty extraction. The schema grammar must accept this alongside
++        // the fenced format used by the base model.
++        const std::string entities_schema = R"({"type":"object","properties":{"entities":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"type":{"type":"string","enum":["PERSONNE"]}},"required":["text","type"],"additionalProperties":false}}},"required":["entities"],"additionalProperties":false})";
++        for (const std::string value : {std::string(R"({"entities":[]})"),
++                                      std::string(R"({"entities":[{"text":"Claire Martin","type":"PERSONNE"}]})")}) {
++            for (bool fenced : {false, true}) {
++                tst.test(fenced ? "```json\n" + value + "\n```" : value)
++                    .enable_thinking(false)
++                    .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
++                    .json_schema(entities_schema)
++                    .expect_content(value)
++                    .run();
++            }
++        }
++        tst.test("<|channel>thought\nNo identifiers.<channel|>{\"entities\":[]}")
++            .enable_thinking(true)
++            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
++            .json_schema(entities_schema)
++            .expect_reasoning("No identifiers.")
++            .expect_content(R"({"entities":[]})")
++            .run();
++
+         tst.test("Hello, world!").expect(simple_assist_msg("Hello, world!")).run();
+ 
+         // Reasoning and content
