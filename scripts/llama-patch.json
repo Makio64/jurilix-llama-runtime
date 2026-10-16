@@ -1,11 +1,11 @@
 {
   "schema": "jurilix.llama-patch.v1",
-  "id": "b11642-jurilix1",
+  "id": "b11696-jurilix1",
   "upstreamRepository": "ggml-org/llama.cpp",
-  "upstreamTag": "b11642",
-  "upstreamCommit": "2639a3b4e029d1be80ca4a472d62dfea23609075",
-  "patch": "scripts/finetune/patches/llama-cpp-gemma4-ministral3-plain-json-b11642-2026-10-15.diff",
-  "patchSha256": "3502f1c44579592e6ef3d6ad94a0d2ca998174f5cfd512b6d17983e8a4e2e0d1",
+  "upstreamTag": "b11696",
+  "upstreamCommit": "ceefd16daa2093730bf3340315fa2b84b286ddbc",
+  "patch": "scripts/finetune/patches/llama-cpp-gemma4-ministral3-plain-json-b11696-2026-10-16.diff",
+  "patchSha256": "b4d530a9cda349bcf0ffb9c0b19fa5d695ee5cd36891f000e5ce0b6b77daaddf",
   "tests": [
     "test-chat",
     "test-chat-peg-parser",
