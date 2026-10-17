@@ -65,6 +65,12 @@ class PinnedPatchTests(unittest.TestCase):
         output = subprocess.check_output(["git", "apply", "--numstat", str(patch)], cwd=ROOT, text=True)
         self.assertIn("common/parsers/gemma4.cpp", output)
         self.assertIn("tests/test-chat.cpp", output)
+        # Precompiled Metal shaders: macOS 13.3 target beside the tensor kernels, BF16 guard.
+        self.assertIn("ggml/src/ggml-metal/CMakeLists.txt", output)
+        self.assertIn("ggml/src/ggml-metal/ggml-metal-device.m", output)
+        args = builder.configure_args(Path('/source'), Path('/build'), 'macos-arm64', manifest)
+        self.assertIn('-DGGML_METAL_EMBED_LIBRARY=OFF', args)
+        self.assertIn('-DGGML_METAL_MACOSX_VERSION_MIN=13.3', args)
 
     def test_product_and_ministral_builds_preserve_both_parser_fixes(self):
         manifest = json.loads((ROOT / "scripts/llama-patch-ministral.json").read_text())
@@ -74,10 +80,10 @@ class PinnedPatchTests(unittest.TestCase):
         for path in ("common/parsers/gemma4.cpp", "common/parsers/ministral3.cpp", "tests/test-chat.cpp"):
             self.assertIn(path, output)
         args = builder.configure_args(Path('/source'), Path('/build'), 'macos-arm64', manifest)
-        self.assertIn('-DLLAMA_BUILD_COMMIT=ceefd16daa-jurilix1', args)
+        self.assertIn('-DLLAMA_BUILD_COMMIT=ceefd16daa-jurilix2', args)
         original = json.loads((ROOT / "scripts/llama-patch.json").read_text())
         self.assertEqual(original, manifest)
-        self.assertEqual(builder.patched_commit(original), 'ceefd16daa-jurilix1')
+        self.assertEqual(builder.patched_commit(original), 'ceefd16daa-jurilix2')
 
     def test_rejects_ambiguous_patch_identity(self):
         with self.assertRaisesRegex(ValueError, 'Patch ID'):
