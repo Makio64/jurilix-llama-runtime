@@ -75,10 +75,10 @@ jobs:
         run: python -m pip install --disable-pip-version-check pefile==2024.8.26
       - name: Compose the unchanged pinned upstream CUDA plugin
         if: matrix.variant == 'win-cuda-x64'
-        run: python scripts/compose-cuda-runtime.py --cpu-receipt tmp/gemma-runtime/artifacts/llama-b11696-jurilix2-bin-win-cpu-x64.json --output tmp/gemma-runtime/cuda-original
+        run: python scripts/compose-cuda-runtime.py --cpu-receipt tmp/gemma-runtime/artifacts/llama-b11750-jurilix1-bin-win-cpu-x64.json --output tmp/gemma-runtime/cuda-original
       - name: Split bounded CUDA downloads
         if: matrix.variant == 'win-cuda-x64'
-        run: python scripts/split-cuda-runtime.py --receipt tmp/gemma-runtime/cuda-original/llama-b11696-jurilix2-bin-win-cuda-x64.json --output tmp/gemma-runtime/cuda-downloads
+        run: python scripts/split-cuda-runtime.py --receipt tmp/gemma-runtime/cuda-original/llama-b11750-jurilix1-bin-win-cuda-x64.json --output tmp/gemma-runtime/cuda-downloads
       - name: Preserve runtime, checksums and test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1,7 +1,7 @@
 # Jurilix llama.cpp runtime
 
-Reproducible native builds of `b11696-jurilix2`, based on upstream llama.cpp
-commit `ceefd16daa2093730bf3340315fa2b84b286ddbc`.
+Reproducible native builds of `b11750-jurilix1`, based on upstream llama.cpp
+commit `dd002b91f583af0b80140f9a140dc04856bfc2e0`.
 
 The pinned patch lets Gemma 4 and Ministral 3 emit either direct JSON or fenced
 JSON when a response schema is used. Both paths, empty extractions and
@@ -20,7 +20,7 @@ on a native Apple Silicon runner. Other native variants are listed by `--help`.
 and packaging behavior without downloading model weights.
 
 The manually dispatched build workflow produces macOS, Linux and Windows
-CPU/Vulkan artifacts. Windows CUDA combines the exact same upstream b11696
+CPU/Vulkan artifacts. Windows CUDA combines the exact same upstream b11750
 CUDA 12.4 backend with the native-tested patched core, checks native imports
 and device discovery, then splits the result into bounded download archives.
 A runner without an NVIDIA driver cannot qualify CUDA GPU inference.
