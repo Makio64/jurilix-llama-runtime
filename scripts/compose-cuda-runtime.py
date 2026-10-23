@@ -3,7 +3,7 @@
 
 The patch changes only Gemma/Ministral chat parsers and parser tests. GGML's
 dynamic backend API checks its ABI version when loading the CUDA plugin. This
-recipe retains the exact upstream b11750 CUDA 12.4 DLL and redistributables,
+recipe retains the exact upstream b11835 CUDA 12.4 DLL and redistributables,
 then requires native Windows import resolution and server device discovery.
 Full plugin registration also runs when an NVIDIA driver is available.
 It does not claim GPU inference on a runner without a GPU.
@@ -25,7 +25,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = {
-    "llama-b11750-bin-win-cuda-12.4-x64.zip": (271945089, "d14e884c04ea19410dcfdcb037fe548de9bcff6dddd8941cf7cd602fade06682"),
+    "llama-b11835-bin-win-cuda-12.4-x64.zip": (272331354, "d01f8afed8b6c6b3a1738df9719475bbd996beb1859a9437c4b5e91afdc702d5"),
     "cudart-llama-bin-win-cuda-12.4-x64.zip": (391443627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"),
 }
 
@@ -75,7 +75,7 @@ def download(name: str, cache: Path) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         request = urllib.request.Request(
-            f"https://github.com/ggml-org/llama.cpp/releases/download/b11750/{name}",
+            f"https://github.com/ggml-org/llama.cpp/releases/download/b11835/{name}",
             headers={"User-Agent": "jurilix-runtime-build/1"})
         with urllib.request.urlopen(request, timeout=120) as response, path.open("xb") as stream:
             copied = 0
@@ -176,7 +176,7 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
                 if basename in files:
                     raise ValueError("CUDA dependency would overwrite a tested runtime file")
                 files[basename] = bundle.read(member)
-        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b11750", "filename": name,
+        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b11835", "filename": name,
                         "bytes": UPSTREAM[name][0], "sha256": UPSTREAM[name][1]})
     output.mkdir(parents=True)
     stage = output / "runtime"
