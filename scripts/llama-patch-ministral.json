@@ -5,7 +5,7 @@
   "upstreamTag": "b11835",
   "upstreamCommit": "f64a49819ccbf67a710f9a1927080e25775651ef",
   "patch": "scripts/finetune/patches/llama-cpp-gemma4-ministral3-plain-json-metallib-b11696-2026-10-16.diff",
-  "patchSha256": "00f2dae8ed99ab421f1c8f093a5ffc9b24ba4668708eb21fa6d9bd98ed1107ca",
+  "patchSha256": "b129186476833eaa46d6d88573da391184ff81b76adef78bd19a38e794748593",
   "tests": [
     "test-chat",
     "test-chat-peg-parser",
