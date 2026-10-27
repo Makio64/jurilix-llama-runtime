@@ -119,4 +119,4 @@ jobs:
       - name: Verify receipts, parser logs and archives
         run: python3 scripts/verify-ci-artifacts.py --ci ci --out publish --tag "$TAG" win-cpu-x64 win-vulkan-x64 win-cuda-x64
       - name: Attach to the release
-        run: gh release upload "$TAG" publish/* --repo "$REPO"
+        run: gh release upload "$TAG" publish/* --repo "$REPO" --clobber
