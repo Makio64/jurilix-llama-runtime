@@ -34,6 +34,11 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def file_sha(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def version_identity(output: str) -> tuple[str, str]:
     versions = [line for line in output.splitlines() if line.startswith("version:")]
     compilers = [line for line in output.splitlines() if line.startswith("built with ")]
@@ -176,7 +181,7 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
                 if basename in files:
                     raise ValueError("CUDA dependency would overwrite a tested runtime file")
                 files[basename] = bundle.read(member)
-        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b11835", "filename": name,
+        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b12098", "filename": name,
                         "bytes": UPSTREAM[name][0], "sha256": UPSTREAM[name][1]})
     output.mkdir(parents=True)
     stage = output / "runtime"
@@ -215,11 +220,13 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
     (stage / "RUNTIME.json").write_text(json.dumps(receipt, indent=2) + "\n")
     stem = f"llama-{base['id']}-bin-win-cuda-x64"
     archive = output / (stem + ".zip")
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+    # This intermediate stays on the runner: split-cuda-runtime verifies it and
+    # compresses the two bounded downloads immediately afterwards. Compressing
+    # here would encode every CUDA DLL twice without reducing artifact storage.
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as bundle:
         for p in sorted(stage.iterdir()):
             bundle.write(p, p.name)
-    data = archive.read_bytes()
-    receipt["archive"] = {"filename": archive.name, "bytes": len(data), "sha256": sha(data)}
+    receipt["archive"] = {"filename": archive.name, "bytes": archive.stat().st_size, "sha256": file_sha(archive)}
     (output / (stem + ".json")).write_text(json.dumps(receipt, indent=2) + "\n")
     shutil.rmtree(stage)
     return receipt
