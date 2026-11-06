@@ -25,7 +25,13 @@ def get_json(*command):
     return json.loads(subprocess.check_output(command,text=True))
 
 
-run = get_json('gh','run','view',RUN,'--repo',REPO,'--json','conclusion,headSha,workflowName')
+def get_release():
+    releases = get_json('gh','api',f'repos/{REPO}/releases?per_page=100')
+    release, = [item for item in releases if item['tag_name']==TAG]
+    return get_json('gh','api',f"repos/{REPO}/releases/{release['id']}")
+
+
+run = get_json('gh' ,'run','view',RUN,'--repo',REPO,'--json','conclusion,headSha,workflowName')
 assert run == {'conclusion':'success','headSha':SOURCE_HEAD,'workflowName':'Build patched llama.cpp runtime'},run
 pin = json.loads((CODE/'scripts/llama-patch.json').read_text())
 EVIDENCE.mkdir(parents=True,exist_ok=True)
@@ -96,12 +102,12 @@ with tempfile.TemporaryDirectory(prefix='jurilix-b12144-selected-publication-') 
     assert split['composition'] == composition
     assert [split['archive'],*split['extras']] == metadata[2]['archives']
     assert split['packagerSha256'] == sha(CODE/'scripts/split-cuda-runtime.py')
-    release = get_json('gh','api',f'repos/{REPO}/releases/tags/{TAG}')
+    release = get_release()
     assert release['draft'] is True
     print('Selected payload verified: 59 runtime files, 17 native tests, four archive digests.',flush=True)
     files = sorted(path for path in publish.iterdir() if path.is_file())
     subprocess.run(['gh','release','upload',TAG,*map(str,files),'--repo',REPO,'--clobber'],check=True)
-    release = get_json('gh','api',f'repos/{REPO}/releases/tags/{TAG}')
+    release = get_release()
     uploaded = {asset['name']:asset for asset in release['assets']}
     for row in metadata:
         for archive in row['archives']:
