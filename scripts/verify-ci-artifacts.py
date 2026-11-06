@@ -46,6 +46,8 @@ def verify(ci: Path, variant: str) -> dict:
     expected_tests = set(PIN["tests"])
     if variant.startswith("win-"):
         expected_tests.add("test-chat-peg-parser-shared")
+    if variant == 'win-cuda-x64' and 'composition' in receipt:
+        expected_tests.update(('test-cuda-dependency-imports', 'test-packaged-device-discovery'))
     assert {test["name"] for test in receipt["tests"]} == expected_tests
     for test in receipt["tests"]:
         assert test["exitCode"] == 0
@@ -63,14 +65,29 @@ def verify(ci: Path, variant: str) -> dict:
         assert split["nativeReceiptSha256"] == digest(path.read_bytes())
         assert split["repackagedFrom"] == receipt["archive"]
         assert split["packagerSha256"] == script_sha("split-cuda-runtime.py")
-        assert 'composition' not in receipt, 'Only fully native CUDA builds are accepted'
-        spec = importlib.util.spec_from_file_location('native_cuda_probe', ROOT / 'scripts/native-cuda-probe.py')
-        probe = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(probe)
-        probe_path = path.parent / 'native-cuda-probe.json'
-        hardware_report = probe.verify_report(path, probe_path)
-        assert hardware_report['probeDependencySha256'] == script_sha('compose-cuda-runtime.py')
-        metadata[f"llama-{PIN['id']}-native-cuda-probe.json"] = probe_path
+        if 'composition' in receipt:
+            assert split['composition'] == receipt['composition']
+            composition = receipt['composition']
+            assert composition['scriptSha256'] == script_sha('compose-cuda-runtime-b12144.py')
+            cpu_path, = (ci / 'gemma-runtime-win-cpu-x64').rglob(f"llama-{PIN['id']}-bin-win-cpu-x64.json")
+            assert composition['nativeBaseReceiptSha256'] == digest(cpu_path.read_bytes())
+            assert composition['nativeBaseArchive'] == json.loads(cpu_path.read_text())['archive']
+            spec = importlib.util.spec_from_file_location('compose_cuda_runtime', ROOT / 'scripts/compose-cuda-runtime-b12144.py')
+            composer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(composer)
+            expected_sources = [dict(repository='ggml-org/llama.cpp',tag=PIN['upstreamTag'],filename=name,bytes=size,sha256=sha)
+                for name,(size,sha) in composer.UPSTREAM.items()]
+            assert composition['cudaSources'] == expected_sources
+            assert composition['gpuInferenceQualified'] is False
+            hardware_report = dict(hardwareChecks=composition['hardwareChecks'],gpuInferenceQualified=False)
+        else:
+            spec = importlib.util.spec_from_file_location('native_cuda_probe', ROOT / 'scripts/native-cuda-probe.py')
+            probe = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(probe)
+            probe_path = path.parent / 'native-cuda-probe.json'
+            hardware_report = probe.verify_report(path, probe_path)
+            assert hardware_report['probeDependencySha256'] == script_sha('compose-cuda-runtime.py')
+            metadata[f"llama-{PIN['id']}-native-cuda-probe.json"] = probe_path
         archives = [split["archive"], *split["extras"]]
         archive_root = split_path.parent
         metadata[f"llama-{PIN['id']}-split-{variant}.json"] = split_path
