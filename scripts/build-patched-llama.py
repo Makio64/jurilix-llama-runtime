@@ -89,7 +89,8 @@ def configure_args(source: Path, build: Path, variant: str, spec: dict) -> list[
         args += ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3", "-DCMAKE_BUILD_RPATH=@loader_path",
                  "-DGGML_BLAS=ON", "-DGGML_BLAS_VENDOR=Apple"]
         if variant == "macos-arm64":
-            args += ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"]
+            # Precompiled shaders: no ~15 s Metal compile at launch when the system cache misses.
+            args += ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=OFF", "-DGGML_METAL_MACOSX_VERSION_MIN=13.3"]
     elif variant == "linux-x64":
         args += ["-DCMAKE_BUILD_RPATH=$ORIGIN"]
     if variant.startswith("win-"):
@@ -129,7 +130,8 @@ def build_package(args: argparse.Namespace, spec: dict) -> None:
         run(["cmake", "--build", str(test_build), "--parallel", str(args.jobs), "--target", *spec["tests"]],
             source, out / f"{args.variant}-test-build.log")
     else:
-        run(["cmake", "--build", str(build), "--parallel", str(args.jobs), "--target", "llama-server", *spec["tests"]],
+        metal = ["ggml-metal-lib"] if args.variant == "macos-arm64" else []
+        run(["cmake", "--build", str(build), "--parallel", str(args.jobs), "--target", "llama-server", *metal, *spec["tests"]],
             source, out / f"{args.variant}-build.log")
     suffix = ".exe" if expected_os == "Windows" else ""
     tests = []

@@ -19,13 +19,20 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def file_digest(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def split(receipt_path: Path, output: Path) -> dict:
     original = json.loads(receipt_path.read_text())
     if original["variant"] != "win-cuda-x64" or not original.get("tests") or any(t["exitCode"] != 0 for t in original["tests"]):
         raise ValueError("A passing native Windows CUDA build is required")
     source = receipt_path.parent / original["archive"]["filename"]
-    data = source.read_bytes()
-    if len(data) != original["archive"]["bytes"] or digest(data) != original["archive"]["sha256"]:
+    # Composed archives are stored without compression until this final split.
+    # Hash incrementally instead of retaining the entire intermediate alongside
+    # all extracted native DLL bytes.
+    if source.stat().st_size != original["archive"]["bytes"] or file_digest(source) != original["archive"]["sha256"]:
         raise ValueError("Source archive differs from the native build receipt")
     with zipfile.ZipFile(source) as bundle:
         if len(bundle.namelist()) != len(set(bundle.namelist())):

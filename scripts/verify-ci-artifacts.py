@@ -3,13 +3,14 @@
 
 Each receipt must match the pinned source, patch and builder; every parser log,
 archive digest and packaged file is checked, and CUDA must match its
-composition and split receipts. Only verified archives, receipts and log
+native-probe and split receipts. Only verified archives, receipts and log
 bundles are copied to --out, with ci-validation.json describing them.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -45,8 +46,6 @@ def verify(ci: Path, variant: str) -> dict:
     expected_tests = set(PIN["tests"])
     if variant.startswith("win-"):
         expected_tests.add("test-chat-peg-parser-shared")
-    if variant == "win-cuda-x64":
-        expected_tests.update(("test-cuda-dependency-imports", "test-packaged-device-discovery"))
     assert {test["name"] for test in receipt["tests"]} == expected_tests
     for test in receipt["tests"]:
         assert test["exitCode"] == 0
@@ -64,9 +63,14 @@ def verify(ci: Path, variant: str) -> dict:
         assert split["nativeReceiptSha256"] == digest(path.read_bytes())
         assert split["repackagedFrom"] == receipt["archive"]
         assert split["packagerSha256"] == script_sha("split-cuda-runtime.py")
-        assert split["composition"] == receipt["composition"]
-        assert receipt["composition"]["scriptSha256"] == script_sha("compose-cuda-runtime.py")
-        assert all(source["tag"] == PIN["upstreamTag"] for source in receipt["composition"]["cudaSources"])
+        assert 'composition' not in receipt, 'Only fully native CUDA builds are accepted'
+        spec = importlib.util.spec_from_file_location('native_cuda_probe', ROOT / 'scripts/native-cuda-probe.py')
+        probe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(probe)
+        probe_path = path.parent / 'native-cuda-probe.json'
+        hardware_report = probe.verify_report(path, probe_path)
+        assert hardware_report['probeDependencySha256'] == script_sha('compose-cuda-runtime.py')
+        metadata[f"llama-{PIN['id']}-native-cuda-probe.json"] = probe_path
         archives = [split["archive"], *split["extras"]]
         archive_root = split_path.parent
         metadata[f"llama-{PIN['id']}-split-{variant}.json"] = split_path
@@ -89,9 +93,9 @@ def verify(ci: Path, variant: str) -> dict:
     result = {"variant": variant, "receiptSha256": digest(path.read_bytes()),
               "filesVerified": len(receipt["files"]), "testsVerified": len(receipt["tests"]),
               "archives": archives}
-    if "composition" in receipt:
-        result["hardwareChecks"] = receipt["composition"]["hardwareChecks"]
-        result["gpuInferenceQualified"] = receipt["composition"]["gpuInferenceQualified"]
+    if variant == 'win-cuda-x64':
+        result['hardwareChecks'] = hardware_report['hardwareChecks']
+        result['gpuInferenceQualified'] = False
     return result, [archive_root / a["filename"] for a in archives], metadata, sorted(path.parent.glob(f"{variant}-*.log"))
 
 
