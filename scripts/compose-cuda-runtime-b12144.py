@@ -25,6 +25,11 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+AUDITED_CORE = {
+    "id": "b12144-jurilix1",
+    "upstreamCommit": "69ee2ecc0150ba7d1204a7f7393dfd651569db8c",
+    "patchSha256": "bed6dffef6948ddcecc082da5266eaa9496cea48d22083c164d458abb1cc1e38",
+}
 UPSTREAM = {
     "llama-b12144-bin-win-cuda-12.4-x64.zip": (288363637, "fab315401a4784fa9c98c3105bf6e2ede6d3d2dafceb873e9bccd169f0f32cb7"),
     "cudart-llama-bin-win-cuda-12.4-x64.zip": (391443627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"),
@@ -161,6 +166,8 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
     if output.exists():
         raise FileExistsError("Output exists; reconcile before retrying")
     base, files = verified_files(receipt_path)
+    if any(base.get(key) != expected for key, expected in AUDITED_CORE.items()):
+        raise ValueError("This official CUDA plugin is compatible only with the exact audited b12144 core")
     # Validate all archived parser-test evidence before creating a package.
     evidence = []
     for test in base["tests"]:
