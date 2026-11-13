@@ -2,7 +2,7 @@
 """Combine the tested patched Windows runtime with its unchanged upstream CUDA plugin.
 
 The patched core/server is the passing native Jurilix CPU build. CUDA kernels
-come from the unmodified official b12144 plugin, so Jurilix-specific CUDA
+come from the unmodified official b12359 plugin, so Jurilix-specific CUDA
 fusions are not part of this package. GGML checks the plugin ABI on loading.
 This recipe retains exact upstream CUDA 12.4 DLL and redistributables,
 then requires native Windows import resolution and server device discovery.
@@ -26,12 +26,12 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDITED_CORE = {
-    "id": "b12144-jurilix1",
-    "upstreamCommit": "69ee2ecc0150ba7d1204a7f7393dfd651569db8c",
-    "patchSha256": "bed6dffef6948ddcecc082da5266eaa9496cea48d22083c164d458abb1cc1e38",
+    "id": "b12359-jurilix1",
+    "upstreamCommit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "patchSha256": "ada536409bdb77e282371057945689b1cd6fc3bb9cb8d66c17124221cf26f820",
 }
 UPSTREAM = {
-    "llama-b12144-bin-win-cuda-12.4-x64.zip": (288363637, "fab315401a4784fa9c98c3105bf6e2ede6d3d2dafceb873e9bccd169f0f32cb7"),
+    "llama-b12359-bin-win-cuda-12.4-x64.zip": (318976332, "e9c0abf442e8339c06728366c1ad2c711332f9939c0c00603fb75d85fd44c914"),
     "cudart-llama-bin-win-cuda-12.4-x64.zip": (391443627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"),
 }
 
@@ -86,7 +86,7 @@ def download(name: str, cache: Path) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         request = urllib.request.Request(
-            f"https://github.com/ggml-org/llama.cpp/releases/download/b12144/{name}",
+            f"https://github.com/ggml-org/llama.cpp/releases/download/b12359/{name}",
             headers={"User-Agent": "jurilix-runtime-build/1"})
         with urllib.request.urlopen(request, timeout=120) as response, path.open("xb") as stream:
             copied = 0
@@ -167,7 +167,7 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
         raise FileExistsError("Output exists; reconcile before retrying")
     base, files = verified_files(receipt_path)
     if any(base.get(key) != expected for key, expected in AUDITED_CORE.items()):
-        raise ValueError("This official CUDA plugin is compatible only with the exact audited b12144 core")
+        raise ValueError("This official CUDA plugin is compatible only with the exact audited b12359 core")
     # Validate all archived parser-test evidence before creating a package.
     evidence = []
     for test in base["tests"]:
@@ -189,7 +189,7 @@ def compose(receipt_path: Path, output: Path, cache: Path) -> dict:
                 if basename in files:
                     raise ValueError("CUDA dependency would overwrite a tested runtime file")
                 files[basename] = bundle.read(member)
-        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b12144", "filename": name,
+        sources.append({"repository": "ggml-org/llama.cpp", "tag": "b12359", "filename": name,
                         "bytes": UPSTREAM[name][0], "sha256": UPSTREAM[name][1]})
     output.mkdir(parents=True)
     stage = output / "runtime"

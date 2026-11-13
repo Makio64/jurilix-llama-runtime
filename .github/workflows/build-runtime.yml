@@ -1,45 +1,102 @@
-name: Compose Jurilix CUDA fallback
+name: Build patched llama.cpp runtime
 
+# Two modes, one file (only this workflow name is registered on the default branch):
+#   no input        builds and tests the pinned runtime natively on Windows (CPU, Vulkan)
+#   native_run_id   composes the CUDA package from that run's CPU job and the exact official
+#                   CUDA plugin, verifies every receipt, and attaches the three Windows packages
+#                   to an existing draft release when release_tag is given
 on:
   workflow_dispatch:
     inputs:
       native_run_id:
-        description: Run with successful pinned Windows CPU and Vulkan jobs
-        required: true
-        default: '42164158002'
+        description: Compose and verify the Windows packages of this successful native run
+        required: false
+        default: ''
       release_tag:
-        description: Optional existing draft release receiving verified packages
+        description: Existing draft release receiving the verified packages (with native_run_id)
         required: false
         default: ''
 
 permissions:
-  actions: read
-  contents: write
+  contents: read
 
 jobs:
+  runtime:
+    name: ${{ matrix.variant }}
+    if: inputs.native_run_id == ''
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [win-cpu-x64, win-vulkan-x64]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Test the build and packaging receipts
+        run: python -m unittest discover -s tests/scripts -p 'test_*.py'
+      - name: Prepare verified upstream source and patch
+        run: python scripts/build-patched-llama.py --variant ${{ matrix.variant }} --prepare-only
+      - name: Install Ninja
+        run: choco install ninja -y
+      - name: Install Vulkan SDK
+        if: matrix.variant == 'win-vulkan-x64'
+        shell: pwsh
+        run: |
+          $version = '1.4.357.0'
+          $installer = Join-Path $env:RUNNER_TEMP 'VulkanSDK-Installer.exe'
+          curl.exe --fail --location --output $installer "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Vulkan SDK download failed' }
+          & $installer --accept-licenses --default-answer --confirm-command install
+          if ($LASTEXITCODE -ne 0) { throw 'Vulkan SDK installation failed' }
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$version"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$version\bin"
+      - name: Build and run parser tests
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          python scripts/build-patched-llama.py --variant ${{ matrix.variant }} --jobs 3
+      - name: Preserve runtime, checksums and test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gemma-runtime-${{ matrix.variant }}
+          path: tmp/gemma-runtime/artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
   compose:
+    name: compose-win-cuda-x64
+    if: inputs.native_run_id != ''
     runs-on: windows-2022
     timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       NATIVE_RUN_ID: ${{ inputs.native_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       - name: Require passing native CPU and Vulkan jobs
         shell: pwsh
         run: |
           if ($env:NATIVE_RUN_ID -notmatch '^\d+$') { throw 'Invalid run ID' }
-          $run = gh api "repos/$env:REPO/actions/runs/$env:NATIVE_RUN_ID/jobs?per_page=100" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'Native run lookup failed' }
+          $jobs = gh api "repos/$env:REPO/actions/runs/$env:NATIVE_RUN_ID/jobs?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Native job lookup failed' }
           foreach ($variant in @('win-cpu-x64','win-vulkan-x64')) {
-            $jobs = @($run.jobs | Where-Object { $_.name -eq $variant -and $_.conclusion -eq 'success' })
-            if ($jobs.Count -ne 1) { throw "Expected one successful native job for $variant" }
+            $passed = @($jobs.jobs | Where-Object { $_.name -eq $variant -and $_.conclusion -eq 'success' })
+            if ($passed.Count -ne 1) { throw "Expected one successful native job for $variant" }
           }
+          $id = (Get-Content scripts/llama-patch.json -Raw | ConvertFrom-Json).id
+          Add-Content $env:GITHUB_ENV "RUNTIME_ID=$id"
       - name: Test receipt and packaging verification
         run: python -B -m unittest discover -s tests/scripts -p 'test_*.py'
       - name: Install pinned PE import reader
@@ -59,40 +116,45 @@ jobs:
       - name: Compose patched core with exact official CUDA and probe native imports
         shell: pwsh
         run: |
-          $receipts = @(Get-ChildItem 'tmp/ci/gemma-runtime-win-cpu-x64' -Recurse -Filter 'llama-b12144-jurilix1-bin-win-cpu-x64.json')
+          $receipts = @(Get-ChildItem 'tmp/ci/gemma-runtime-win-cpu-x64' -Recurse -Filter "llama-$env:RUNTIME_ID-bin-win-cpu-x64.json")
           if ($receipts.Count -ne 1) { throw 'Expected one exact native CPU receipt' }
-          python scripts/compose-cuda-runtime-b12144.py --cpu-receipt $receipts[0].FullName --output tmp/ci/gemma-runtime-win-cuda-x64/native-cuda
+          python scripts/compose-cuda-runtime-b12359.py --cpu-receipt $receipts[0].FullName --output tmp/ci/gemma-runtime-win-cuda-x64/native-cuda
           if ($LASTEXITCODE -ne 0) { throw 'CUDA composition or native probes failed' }
       - name: Split bounded CUDA packages
-        run: python scripts/split-cuda-runtime.py --receipt tmp/ci/gemma-runtime-win-cuda-x64/native-cuda/llama-b12144-jurilix1-bin-win-cuda-x64.json --output tmp/ci/gemma-runtime-win-cuda-x64/cuda-downloads
+        shell: pwsh
+        run: |
+          python scripts/split-cuda-runtime.py --receipt "tmp/ci/gemma-runtime-win-cuda-x64/native-cuda/llama-$env:RUNTIME_ID-bin-win-cuda-x64.json" --output tmp/ci/gemma-runtime-win-cuda-x64/cuda-downloads
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA split failed' }
       - name: Verify every source receipt, log, archive and runtime file
-        run: python scripts/verify-ci-artifacts.py --ci tmp/ci --out publish --tag b12144-jurilix1 win-cpu-x64 win-vulkan-x64 win-cuda-x64
-      - name: Preserve compact verified metadata
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: jurilix-cuda-fallback-metadata
-          path: |
-            publish/*.json
-          if-no-files-found: error
-          retention-days: 7
+        shell: pwsh
+        run: |
+          python scripts/verify-ci-artifacts.py --ci tmp/ci --out publish --tag $env:RUNTIME_ID win-cpu-x64 win-vulkan-x64 win-cuda-x64
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact verification failed' }
       - name: Attach verified packages only to the requested draft release
         if: inputs.release_tag != ''
         shell: pwsh
         run: |
-          if ($env:RELEASE_TAG -ne 'b12144-jurilix1') { throw 'Release does not match pinned runtime' }
-          $release = gh release view $env:RELEASE_TAG --repo $env:REPO --json isDraft | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or !$release.isDraft) { throw 'Expected an existing draft release' }
+          if ($env:RELEASE_TAG -ne $env:RUNTIME_ID) { throw 'Release does not match pinned runtime' }
+          $releases = gh api "repos/$env:REPO/releases?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Release lookup failed' }
+          $release = @($releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG })
+          if ($release.Count -ne 1 -or !$release[0].draft) { throw 'Expected one existing draft release' }
           gh release upload $env:RELEASE_TAG (Get-ChildItem publish -File).FullName --repo $env:REPO --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Draft upload failed' }
-      - name: Preserve source and native verification evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: Preserve compact verified metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: jurilix-cuda-fallback-verified
+          name: jurilix-runtime-windows-metadata
+          path: publish/*.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve native verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jurilix-runtime-windows-evidence
           path: |
-            publish/
             tmp/ci/gemma-runtime-win-cuda-x64/native-cuda/*.log
             tmp/ci/gemma-runtime-win-cuda-x64/native-cuda/*.json
           if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
+          retention-days: 30

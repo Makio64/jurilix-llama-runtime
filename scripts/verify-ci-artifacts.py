@@ -68,11 +68,11 @@ def verify(ci: Path, variant: str) -> dict:
         if 'composition' in receipt:
             assert split['composition'] == receipt['composition']
             composition = receipt['composition']
-            assert composition['scriptSha256'] == script_sha('compose-cuda-runtime-b12144.py')
+            assert composition['scriptSha256'] == script_sha('compose-cuda-runtime-b12359.py')
             cpu_path, = (ci / 'gemma-runtime-win-cpu-x64').rglob(f"llama-{PIN['id']}-bin-win-cpu-x64.json")
             assert composition['nativeBaseReceiptSha256'] == digest(cpu_path.read_bytes())
             assert composition['nativeBaseArchive'] == json.loads(cpu_path.read_text())['archive']
-            spec = importlib.util.spec_from_file_location('compose_cuda_runtime', ROOT / 'scripts/compose-cuda-runtime-b12144.py')
+            spec = importlib.util.spec_from_file_location('compose_cuda_runtime', ROOT / 'scripts/compose-cuda-runtime-b12359.py')
             composer = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(composer)
             expected_sources = [dict(repository='ggml-org/llama.cpp',tag=PIN['upstreamTag'],filename=name,bytes=size,sha256=sha)

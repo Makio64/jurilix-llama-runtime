@@ -8,7 +8,7 @@ from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("compose_cuda", ROOT / "scripts/compose-cuda-runtime-b12144.py")
+SPEC = importlib.util.spec_from_file_location("compose_cuda", ROOT / "scripts/compose-cuda-runtime-b12359.py")
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 SPLIT_SPEC = importlib.util.spec_from_file_location("split_cuda", ROOT / "scripts/split-cuda-runtime.py")
@@ -16,7 +16,7 @@ SPLIT = importlib.util.module_from_spec(SPLIT_SPEC)
 SPLIT_SPEC.loader.exec_module(SPLIT)
 
 
-class B12144CudaCompositionTests(unittest.TestCase):
+class B12359CudaCompositionTests(unittest.TestCase):
     def setUp(self):
         self.pin_temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.pin_temp.cleanup)
@@ -30,7 +30,7 @@ class B12144CudaCompositionTests(unittest.TestCase):
         patch.object(MODULE, 'ROOT', self.pin_root).start()
 
     def test_rejects_other_core_id_source_or_patch_before_download_or_output(self):
-        for key, wrong in [('id','b12098-jurilix1'),('upstreamCommit','0'*40),('patchSha256','0'*64)]:
+        for key, wrong in [('id','b12144-jurilix1'),('upstreamCommit','0'*40),('patchSha256','0'*64)]:
             with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
                 self.pin_path.write_text(json.dumps({**self.pin,key:wrong}))
                 root = Path(directory)
@@ -39,18 +39,18 @@ class B12144CudaCompositionTests(unittest.TestCase):
                      patch.object(MODULE.platform,'machine',return_value='AMD64'), \
                      patch.object(MODULE,'download') as downloads, \
                      patch.object(MODULE.subprocess,'run') as commands:
-                    with self.assertRaisesRegex(ValueError,'exact audited b12144 core'):
+                    with self.assertRaisesRegex(ValueError,'exact audited b12359 core'):
                         MODULE.compose(receipt,root/'output',root/'cache')
                     downloads.assert_not_called()
                     commands.assert_not_called()
                 self.assertFalse((root/'output').exists())
 
-    def test_uses_exact_official_b12144_plugin_and_documents_mixed_components(self):
-        self.assertEqual(MODULE.UPSTREAM['llama-b12144-bin-win-cuda-12.4-x64.zip'],
-            (288363637,'fab315401a4784fa9c98c3105bf6e2ede6d3d2dafceb873e9bccd169f0f32cb7'))
+    def test_uses_exact_official_b12359_plugin_and_documents_mixed_components(self):
+        self.assertEqual(MODULE.UPSTREAM['llama-b12359-bin-win-cuda-12.4-x64.zip'],
+            (318976332,'e9c0abf442e8339c06728366c1ad2c711332f9939c0c00603fb75d85fd44c914'))
         with tempfile.TemporaryDirectory() as directory:
             _, receipt = self.compose_fixture(Path(directory))
-        self.assertTrue(all(source['tag']=='b12144' for source in receipt['composition']['cudaSources']))
+        self.assertTrue(all(source['tag']=='b12359' for source in receipt['composition']['cudaSources']))
         self.assertIn('Jurilix-specific CUDA fusions are not compiled', receipt['composition']['scope'])
         self.assertFalse(receipt['composition']['gpuInferenceQualified'])
 

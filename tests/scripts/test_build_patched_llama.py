@@ -80,10 +80,10 @@ class PinnedPatchTests(unittest.TestCase):
         for path in ("common/parsers/gemma4.cpp", "common/parsers/ministral3.cpp", "tests/test-chat.cpp"):
             self.assertIn(path, output)
         args = builder.configure_args(Path('/source'), Path('/build'), 'macos-arm64', manifest)
-        self.assertIn('-DLLAMA_BUILD_COMMIT=69ee2ecc01-jurilix1', args)
+        self.assertIn('-DLLAMA_BUILD_COMMIT=b1b770d90d-jurilix1', args)
         original = json.loads((ROOT / "scripts/llama-patch.json").read_text())
         self.assertEqual(original, manifest)
-        self.assertEqual(builder.patched_commit(original), '69ee2ecc01-jurilix1')
+        self.assertEqual(builder.patched_commit(original), 'b1b770d90d-jurilix1')
 
     def test_rejects_ambiguous_patch_identity(self):
         with self.assertRaisesRegex(ValueError, 'Patch ID'):
